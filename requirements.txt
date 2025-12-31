@@ -1,0 +1,12 @@
+fastapi==0.128.0
+uvicorn==0.40.0
+
+ortools==9.14.6206
+numpy==2.4.0
+pandas==2.3.3
+
+pydantic==2.12.5
+pydantic-core==2.41.5
+
+starlette==0.50.0
+typing-extensions==4.15.0
