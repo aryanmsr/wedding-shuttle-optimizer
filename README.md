@@ -29,131 +29,77 @@ The goal is to assign guests to trips and trips to vehicles in a way that minimi
 
 ### Sets
 
-Guests: $$ i \in \{1, \dots, N\} $$  
-Trips (upper bounded): $$ m \in \{1, \dots, M\} $$  
-Vehicles: $$ k \in \{1, \dots, K\} $$
+Guests:
+$$
+i \in \{1, \dots, N\}
+$$
+
+Trips (upper bounded):
+$$
+m \in \{1, \dots, M\}
+$$
+
+Vehicles:
+$$
+k \in \{1, \dots, K\}
+$$
 
 ---
 
 ### Parameters
 
-Guest arrival time: $$ a_i $$  
-Max arrival spread within a trip: $$ W $$  
-Vehicle round-trip duration: $$ RT $$  
-Vehicle capacity: $$ cap_k $$
+Guest arrival time:
+$$
+a_i
+$$
+
+Maximum arrival spread within a trip:
+$$
+W
+$$
+
+Vehicle round-trip duration:
+$$
+RT
+$$
+
+Vehicle seating capacity:
+$$
+cap_k
+$$
 
 ---
 
 ### Decision Variables
 
-Guest-to-trip assignment: $$ x_{i,m} \in \{0,1\} $$  
-Trip usage indicator: $$ used_m \in \{0,1\} $$  
-Trip-to-vehicle assignment: $$ z_{m,k} \in \{0,1\} $$  
-Trip departure time: $$ dep_m \in \mathbb{Z} $$
+Guest-to-trip assignment:
+$$
+x_{i,m} \in \{0,1\}
+$$
 
-To avoid brittle “max/min with conditions” notation in Markdown math renderers, we also define:
+Trip usage indicator:
+$$
+used_m \in \{0,1\}
+$$
 
-Earliest arrival in trip \(m\): $$ A_m^{\min} \in \mathbb{Z} $$  
-Latest arrival in trip \(m\): $$ A_m^{\max} \in \mathbb{Z} $$
+Trip-to-vehicle assignment:
+$$
+z_{m,k} \in \{0,1\}
+$$
 
----
+Trip departure time:
+$$
+dep_m \in \mathbb{Z}
+$$
 
-### Constraints
+To avoid brittle max/min-with-conditions notation in Markdown math renderers, we also define:
 
-#### 1) Each guest is assigned to exactly one trip
+Earliest arrival time in trip \(m\):
+$$
+A_m^{\min} \in \mathbb{Z}
+$$
 
-$$ \sum_{m=1}^{M} x_{i,m} = 1 \quad \forall i $$
-
-#### 2) Each used trip is assigned to exactly one vehicle
-
-$$ \sum_{k=1}^{K} z_{m,k} = used_m \quad \forall m $$
-
-#### 3) Vehicle-dependent capacity
-
-$$ \sum_{i=1}^{N} x_{i,m} \le \sum_{k=1}^{K} cap_k \cdot z_{m,k} \quad \forall m $$
-
-#### 4) Trip arrival window (max wait constraint)
-
-Define \(A_m^{\min}\) and \(A_m^{\max}\) as the minimum and maximum arrival times among guests assigned to trip \(m\). Then enforce:
-
-$$ A_m^{\max} - A_m^{\min} \le W \quad \forall m \text{ such that } used_m = 1 $$
-
-*(In CP-SAT, \(A_m^{\min}\) and \(A_m^{\max}\) are implemented via masked variables + `AddMinEquality` / `AddMaxEquality`.)*
-
-#### 5) Departure time definition
-
-Each trip departs when the last assigned guest arrives:
-
-$$ dep_m = A_m^{\max} \quad \forall m $$
-
-#### 6) Vehicle reuse (no overlap)
-
-If a vehicle serves multiple trips, the corresponding trip time intervals must not overlap:
-
-$$ [dep_m, \, dep_m + RT) \cap [dep_{m^\prime}, \, dep_{m^\prime} + RT) = \emptyset $$
-
-for all \( m \ne m^\prime \) and vehicle \(k\) whenever:
-
-$$ z_{m,k} = 1 \text{ and } z_{m^\prime,k} = 1 $$
-
-*(In CP-SAT, this is enforced using optional interval variables and `AddNoOverlap` per vehicle.)*
-
-#### 7) Guest-specific constraints (optional)
-
-Incompatibility (guests \(i\) and \(j\) cannot ride together):
-
-$$ x_{i,m} + x_{j,m} \le 1 \quad \forall m $$
-
-Must ride together:
-
-$$ x_{i,m} = x_{j,m} \quad \forall m $$
-
-Must use a specific vehicle (if guest \(i\) is in trip \(m\), that trip must use vehicle \(k\)):
-
-$$ x_{i,m} = 1 \Rightarrow z_{m,k} = 1 $$
-
----
-
-### Objective Function
-
-Minimize total guest waiting time:
-
-$$ \min \sum_{i=1}^{N} \left( dep_{\text{trip}(i)} - a_i \right) $$
-
-A small secondary penalty on the number of trips used can be added to discourage unnecessary fragmentation.
-
----
-
-## Implementation Notes
-
-- Implemented using **Google OR-Tools CP-SAT**
-- Arrival min/max per trip computed via masked variables
-- Vehicle reuse modeled using optional interval variables (`NoOverlap`)
-- Supports:
-  - Heterogeneous vehicle capacities
-  - Multiple trips per vehicle
-  - Hard guest-level constraints (ride-together, incompatibilities, fixed-vehicle rules)
-
----
-
-## Example Use Cases
-
-- Destination wedding airport logistics
-- Event transportation planning
-- Shuttle scheduling with time windows
-- Small-scale fleet reuse problems
-
----
-
-## Tech Stack
-
-- Python
-- FastAPI
-- Google OR-Tools (CP-SAT)
-- Pydantic
-
----
-
-## License
-
-MIT
+Latest arrival time in trip \(m\):
+$$
+A_m^{\max} \in \mathbb{Z}
+$$
