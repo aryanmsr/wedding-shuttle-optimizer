@@ -40,7 +40,7 @@ import {
  * Open-source UI for batching + scheduling problems solved via CP-SAT.
  */
 
-const DEFAULT_ENDPOINT = "http://localhost:8000/solve";
+const DEFAULT_ENDPOINT = "https://wedding-shuttle-optimizer-ui.onrender.com";
 
 /* ---------------- Utilities ---------------- */
 
