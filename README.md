@@ -29,55 +29,69 @@ The goal is to assign guests to trips and trips to vehicles in a way that minimi
 
 ### Sets
 
-- Guests:  
-  $$ i \in \{1, \dots, N\} $$
+- Guests:
+$$
+i \in \{1, \dots, N\}
+$$
 
-- Trips (upper bounded):  
-  $$ m \in \{1, \dots, M\} $$
+- Trips (upper bounded):
+$$
+m \in \{1, \dots, M\}
+$$
 
-- Vehicles:  
-  $$ k \in \{1, \dots, K\} $$
+- Vehicles:
+$$
+k \in \{1, \dots, K\}
+$$
 
 ---
 
 ### Parameters
 
-- Arrival time of guest \( i \):  
-  $$ a_i $$
+- Arrival time of guest \( i \):
+$$
+a_i
+$$
 
-- Maximum allowed arrival spread within a trip:  
-  $$ W $$
+- Maximum allowed arrival spread within a trip:
+$$
+W
+$$
 
-- Vehicle round-trip duration:  
-  $$ RT $$
+- Vehicle round-trip duration:
+$$
+RT
+$$
 
-- Seating capacity of vehicle \( k \):  
-  $$ cap_k $$
+- Seating capacity of vehicle \( k \):
+$$
+cap_k
+$$
 
 ---
 
 ### Decision Variables
 
 - Guest-to-trip assignment:
-  $$
-  x_{i,m} \in \{0,1\}
-  $$
-  (1 if guest \( i \) is assigned to trip \( m \))
+$$
+x_{i,m} \in \{0,1\}
+$$
+(1 if guest \( i \) is assigned to trip \( m \))
 
 - Trip usage indicator:
-  $$
-  used_m \in \{0,1\}
-  $$
+$$
+used_m \in \{0,1\}
+$$
 
 - Trip-to-vehicle assignment:
-  $$
-  z_{m,k} \in \{0,1\}
-  $$
+$$
+z_{m,k} \in \{0,1\}
+$$
 
 - Trip departure time:
-  $$
-  dep_m \in \mathbb{Z}
-  $$
+$$
+dep_m \in \mathbb{Z}
+$$
 
 ---
 
@@ -108,11 +122,12 @@ $$
 ---
 
 #### 4. Maximum waiting window per trip
+
 For each used trip:
 $$
-\max_{i:x_{i,m}=1} a_i
+\max_{i : x_{i,m} = 1} a_i
 -
-\min_{i:x_{i,m}=1} a_i
+\min_{i : x_{i,m} = 1} a_i
 \;\le\;
 W
 $$
@@ -120,46 +135,43 @@ $$
 ---
 
 #### 5. Departure time definition
+
 Each trip departs as soon as the last assigned guest arrives:
 $$
-dep_m
-=
-\max_{i:x_{i,m}=1} a_i
+dep_m = \max_{i : x_{i,m} = 1} a_i
 $$
 
 ---
 
 #### 6. Vehicle reuse (no overlap)
+
 If vehicle \( k \) serves multiple trips, their active intervals must not overlap:
 $$
-[dep_m, dep_m + RT)
-\;\cap\;
-[dep_{m'}, dep_{m'} + RT)
-=
-\emptyset
+[dep_m, \, dep_m + RT) \;\cap\; [dep_{m'}, \, dep_{m'} + RT) = \emptyset
 $$
-for all \( m \neq m' \) such that
+
+for all \( m \neq m' \) such that:
 $$
 z_{m,k} = z_{m',k} = 1
 $$
 
-This is enforced using **optional interval variables** and `NoOverlap` constraints in CP-SAT.
+This constraint is enforced using **optional interval variables** and a `NoOverlap` constraint in CP-SAT.
 
 ---
 
 #### 7. Guest-specific constraints (optional)
 
-- **Incompatibility** (two guests cannot ride together):
+**Incompatibility** (two guests cannot ride together):
 $$
 x_{i,m} + x_{j,m} \le 1 \quad \forall m
 $$
 
-- **Must ride together**:
+**Must ride together**:
 $$
 x_{i,m} = x_{j,m} \quad \forall m
 $$
 
-- **Must use a specific vehicle**:
+**Must use a specific vehicle**:
 $$
 x_{i,m} = 1 \;\Rightarrow\; z_{m,k} = 1
 $$
@@ -181,7 +193,7 @@ A small secondary penalty on the number of trips used can be added to discourage
 
 - Implemented using **Google OR-Tools CP-SAT**
 - Arrival min/max per trip computed via masked variables
-- Vehicle reuse modeled using optional intervals
+- Vehicle reuse modeled using optional interval variables
 - Supports:
   - Heterogeneous vehicle capacities
   - Multiple trips per vehicle
