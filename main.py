@@ -12,9 +12,9 @@ app = FastAPI(title="Wedding Pickup Optimizer", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://wedding-shuttle-optimizer-ui.onrender.com",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "https://wedding-shuttle-optimizer-ui.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
