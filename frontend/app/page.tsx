@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Card,
@@ -24,23 +24,14 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Plus,
-  Trash2,
-  Wand2,
-  Car,
-  Clock,
-  Users,
-  AlertTriangle,
-} from "lucide-react";
+import { Plus, Trash2, Wand2, Car, Clock, Users, AlertTriangle } from "lucide-react";
 
 /**
  * Shuttle Optimizer
  * Open-source UI for batching + scheduling problems solved via CP-SAT.
  */
 
-const DEFAULT_ENDPOINT = "https://wedding-shuttle-optimizer.onrender.com/solve"
+const DEFAULT_ENDPOINT = "https://wedding-shuttle-optimizer.onrender.com/solve";
 
 /* ---------------- Utilities ---------------- */
 
@@ -66,8 +57,95 @@ function clampInt(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, Math.round(n)));
 }
 
-/* ---------------- Types ---------------- */
+function arraysEqual(a?: number[] | null, b?: number[] | null) {
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
 
+type TypewriterTextProps = {
+  text: string;
+  speedMs?: number;
+  startDelayMs?: number;
+  className?: string;
+  cursor?: boolean;
+};
+
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(Boolean(mql.matches));
+    onChange();
+    // Safari compatibility
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // eslint-disable-next-line deprecation/deprecation
+    mql.addListener(onChange);
+    // eslint-disable-next-line deprecation/deprecation
+    return () => mql.removeListener(onChange);
+  }, []);
+
+  return reduced;
+}
+
+
+function TypewriterText({
+  text,
+  speedMs = 28,
+  startDelayMs = 200,
+  className,
+  cursor = true,
+}: TypewriterTextProps) {
+  const prefersReduced = usePrefersReducedMotion();
+  const [shown, setShown] = useState(prefersReduced ? text : "");
+
+  useEffect(() => {
+    if (prefersReduced) {
+      setShown(text);
+      return;
+    }
+
+    let cancelled = false;
+    let i = 0;
+    let timeoutId: number | undefined;
+
+    const start = () => {
+      const tick = () => {
+        if (cancelled) return;
+        i += 1;
+        setShown(text.slice(0, i));
+        if (i < text.length) {
+          timeoutId = window.setTimeout(tick, speedMs);
+        }
+      };
+      tick();
+    };
+
+    timeoutId = window.setTimeout(start, startDelayMs);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [text, speedMs, startDelayMs, prefersReduced]);
+
+  return (
+    <span className={className}>
+      {shown}
+      {cursor && !prefersReduced ? (
+        <span className="ml-0.5 inline-block w-[0.6ch] animate-pulse">▍</span>
+      ) : null}
+    </span>
+  );
+}
+/* ---------------- Types ---------------- */
 type GuestRow = {
   guest_id: string;
   name: string;
@@ -161,6 +239,16 @@ export default function ShuttleOptimizerApp() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SolveResponse | null>(null);
 
+  // Lock background scroll when modal is open (prevents wheel events scrolling the page behind)
+  useEffect(() => {
+    if (!aboutOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [aboutOpen]);
+
   const guestIds = useMemo(() => guests.map((g) => g.guest_id), [guests]);
 
   const computedVehicleCaps = useMemo(() => {
@@ -182,7 +270,8 @@ export default function ShuttleOptimizerApp() {
       if (!g.guest_id.trim()) issues.push("Guest ID cannot be empty.");
       if (idSet.has(g.guest_id)) issues.push(`Duplicate guest_id: ${g.guest_id}`);
       idSet.add(g.guest_id);
-      if (!Number.isFinite(g.arrival_min)) issues.push(`Invalid arrival_min for ${g.guest_id}`);
+      if (!Number.isFinite(g.arrival_min))
+        issues.push(`Invalid arrival_min for ${g.guest_id}`);
       if (g.arrival_min < 0) issues.push(`arrival_min must be >= 0 for ${g.guest_id}`);
     }
 
@@ -397,6 +486,21 @@ export default function ShuttleOptimizerApp() {
     return { trips, totalWait, numTrips };
   }, [result]);
 
+  const capacityEchoLooksWrong = useMemo(() => {
+    if (!useVehicleCaps) return false;
+    if (!result || result.status !== "ok") return false;
+    const echoed = result.vehicle_capacities;
+    if (!echoed) return true;
+    return !arraysEqual(echoed, computedVehicleCaps);
+  }, [useVehicleCaps, result, computedVehicleCaps]);
+
+  const effectiveVehicleCapsForDisplay = useMemo(() => {
+    if (!useVehicleCaps) return null;
+    const echoed = result?.vehicle_capacities;
+    if (echoed && arraysEqual(echoed, computedVehicleCaps)) return echoed;
+    return computedVehicleCaps;
+  }, [useVehicleCaps, result?.vehicle_capacities, computedVehicleCaps]);
+
   return (
     <div className="min-h-screen bg-white text-zinc-950">
       {/* Top bar */}
@@ -407,14 +511,16 @@ export default function ShuttleOptimizerApp() {
               <Car className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-sm font-semibold tracking-tight">
-                Shuttle Optimizer
-              </div>
+              <div className="text-sm font-semibold tracking-tight">Shuttle Optimizer</div>
               <div className="text-xs text-zinc-500">Scheduling, simplified.</div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" className="rounded-2xl" onClick={() => setAboutOpen(true)}>
+            <Button
+              variant="ghost"
+              className="rounded-2xl"
+              onClick={() => setAboutOpen(true)}
+            >
               About
             </Button>
             <Button variant="ghost" className="rounded-2xl" onClick={resetAll}>
@@ -443,13 +549,12 @@ export default function ShuttleOptimizerApp() {
             </div>
 
             <h1 className="mt-4 text-3xl font-semibold tracking-tight md:text-4xl">
-              Scheduling, simplified.
+             <TypewriterText text="Scheduling, simplified." speedMs={22} startDelayMs={200} />
             </h1>
 
             <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-600">
-              Define arrivals, capacities, and constraints. The solver batches
-              people into trips and schedules trips on reusable vehicles while
-              minimizing waiting time.
+              Define arrivals, capacities, and constraints. The solver batches people into trips and
+              schedules trips on reusable vehicles while minimizing waiting time.
             </p>
 
             {error ? (
@@ -473,14 +578,24 @@ export default function ShuttleOptimizerApp() {
               </Alert>
             ) : null}
 
+            {capacityEchoLooksWrong ? (
+              <Alert className="mt-6 border-amber-200 bg-amber-50 text-amber-900">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Capacity echo mismatch</AlertTitle>
+                <AlertDescription className="text-xs">
+                  The backend response appears to be echoing{" "}
+                  <span className="font-mono">vehicle_capacities</span> incorrectly. The UI will
+                  display the capacities you sent for clarity.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             {summary ? (
               <div className="mt-6 grid gap-3 sm:grid-cols-3">
                 <Card className="rounded-3xl">
                   <CardHeader className="pb-2">
                     <CardDescription>Total waiting</CardDescription>
-                    <CardTitle className="text-2xl">
-                      {summary.totalWait} min
-                    </CardTitle>
+                    <CardTitle className="text-2xl">{summary.totalWait} min</CardTitle>
                   </CardHeader>
                 </Card>
                 <Card className="rounded-3xl">
@@ -566,9 +681,7 @@ export default function ShuttleOptimizerApp() {
                           min={1}
                           value={capacityPerCar}
                           onChange={(e) =>
-                            setCapacityPerCar(
-                              clampInt(Number(e.target.value), 1, 60)
-                            )
+                            setCapacityPerCar(clampInt(Number(e.target.value), 1, 60))
                           }
                         />
                       </div>
@@ -583,9 +696,7 @@ export default function ShuttleOptimizerApp() {
                           min={1}
                           value={roundTripMin}
                           onChange={(e) =>
-                            setRoundTripMin(
-                              clampInt(Number(e.target.value), 1, 10_000)
-                            )
+                            setRoundTripMin(clampInt(Number(e.target.value), 1, 10_000))
                           }
                         />
                       </div>
@@ -597,9 +708,7 @@ export default function ShuttleOptimizerApp() {
                           min={0}
                           value={maxWaitMin}
                           onChange={(e) =>
-                            setMaxWaitMin(
-                              clampInt(Number(e.target.value), 0, 10_000)
-                            )
+                            setMaxWaitMin(clampInt(Number(e.target.value), 0, 10_000))
                           }
                         />
                       </div>
@@ -614,10 +723,7 @@ export default function ShuttleOptimizerApp() {
                           Support mixed fleets (car plus vans)
                         </div>
                       </div>
-                      <Switch
-                        checked={useVehicleCaps}
-                        onCheckedChange={setUseVehicleCaps}
-                      />
+                      <Switch checked={useVehicleCaps} onCheckedChange={setUseVehicleCaps} />
                     </div>
 
                     {useVehicleCaps ? (
@@ -659,8 +765,8 @@ export default function ShuttleOptimizerApp() {
                         </div>
                         <div className="text-xs text-zinc-500">
                           Note: the API still expects{" "}
-                          <span className="font-mono">capacity_per_car</span> for
-                          backward compatibility.
+                          <span className="font-mono">capacity_per_car</span> for backward
+                          compatibility.
                         </div>
                       </div>
                     ) : null}
@@ -670,9 +776,7 @@ export default function ShuttleOptimizerApp() {
                 <Card className="rounded-3xl">
                   <CardHeader>
                     <CardTitle className="text-base">Arrivals</CardTitle>
-                    <CardDescription>
-                      Times are stored as minutes; edited as HH:MM
-                    </CardDescription>
+                    <CardDescription>Times are stored as minutes; edited as HH:MM</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="grid gap-3 sm:grid-cols-[1fr_1fr_0.7fr_auto]">
@@ -704,11 +808,7 @@ export default function ShuttleOptimizerApp() {
                         />
                       </div>
                       <div className="flex items-end">
-                        <Button
-                          className="rounded-2xl"
-                          variant="secondary"
-                          onClick={addGuest}
-                        >
+                        <Button className="rounded-2xl" variant="secondary" onClick={addGuest}>
                           <Plus className="mr-2 h-4 w-4" /> Add
                         </Button>
                       </div>
@@ -716,62 +816,56 @@ export default function ShuttleOptimizerApp() {
 
                     <Separator className="my-5" />
 
-                    <ScrollArea className="h-[360px] rounded-2xl border">
-                      <div className="divide-y">
-                        {guests
-                          .slice()
-                          .sort((a, b) => a.arrival_min - b.arrival_min)
-                          .map((g) => (
-                            <div
-                              key={g.guest_id}
-                              className="flex items-center justify-between gap-3 p-3"
-                            >
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <div className="truncate text-sm font-medium">
-                                    {g.name}
+                    <div className="h-[360px] rounded-2xl border overflow-hidden">
+                      <div className="h-full overflow-y-auto overscroll-contain">
+                        <div className="divide-y">
+                          {guests
+                            .slice()
+                            .sort((a, b) => a.arrival_min - b.arrival_min)
+                            .map((g) => (
+                              <div
+                                key={g.guest_id}
+                                className="flex items-center justify-between gap-3 p-3"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <div className="truncate text-sm font-medium">{g.name}</div>
+                                    <Badge variant="secondary" className="rounded-full">
+                                      {g.guest_id}
+                                    </Badge>
                                   </div>
-                                  <Badge
-                                    variant="secondary"
-                                    className="rounded-full"
+                                  <div className="text-xs text-zinc-500">
+                                    arrival_min: {g.arrival_min}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    className="w-24 rounded-2xl"
+                                    value={minutesToHHMM(g.arrival_min)}
+                                    onChange={(e) =>
+                                      updateGuestArrival(g.guest_id, e.target.value)
+                                    }
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    className="rounded-2xl"
+                                    onClick={() => removeGuest(g.guest_id)}
                                   >
-                                    {g.guest_id}
-                                  </Badge>
-                                </div>
-                                <div className="text-xs text-zinc-500">
-                                  arrival_min: {g.arrival_min}
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  className="w-24 rounded-2xl"
-                                  value={minutesToHHMM(g.arrival_min)}
-                                  onChange={(e) =>
-                                    updateGuestArrival(g.guest_id, e.target.value)
-                                  }
-                                />
-                                <Button
-                                  variant="ghost"
-                                  className="rounded-2xl"
-                                  onClick={() => removeGuest(g.guest_id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
+                            ))}
+                        </div>
                       </div>
-                    </ScrollArea>
+                    </div>
 
                     {validation.length ? (
                       <div className="mt-3 text-xs text-zinc-500">
-                        <span className="font-medium">Checks:</span>{" "}
-                        {validation[0]}
+                        <span className="font-medium">Checks:</span> {validation[0]}
                       </div>
                     ) : (
-                      <div className="mt-3 text-xs text-zinc-500">
-                        All inputs look good.
-                      </div>
+                      <div className="mt-3 text-xs text-zinc-500">All inputs look good.</div>
                     )}
                   </CardContent>
                 </Card>
@@ -796,10 +890,7 @@ export default function ShuttleOptimizerApp() {
                           Useful for pairing or special handling
                         </div>
                       </div>
-                      <Switch
-                        checked={togetherEnabled}
-                        onCheckedChange={setTogetherEnabled}
-                      />
+                      <Switch checked={togetherEnabled} onCheckedChange={setTogetherEnabled} />
                     </div>
 
                     {togetherEnabled ? (
@@ -851,10 +942,7 @@ export default function ShuttleOptimizerApp() {
                           <Select
                             value={String(togetherRule.vehicle_index)}
                             onValueChange={(v) =>
-                              setTogetherRule((p) => ({
-                                ...p,
-                                vehicle_index: Number(v),
-                              }))
+                              setTogetherRule((p) => ({ ...p, vehicle_index: Number(v) }))
                             }
                           >
                             <SelectTrigger className="rounded-2xl">
@@ -869,8 +957,7 @@ export default function ShuttleOptimizerApp() {
                             </SelectContent>
                           </Select>
                           <div className="mt-1 text-xs text-zinc-500">
-                            If you pin to a smaller vehicle, ensure its capacity
-                            is set accordingly.
+                            If you pin to a smaller vehicle, ensure its capacity is set accordingly.
                           </div>
                         </div>
                       </div>
@@ -881,24 +968,17 @@ export default function ShuttleOptimizerApp() {
                 <Card className="rounded-3xl">
                   <CardHeader>
                     <CardTitle className="text-base">Incompatibilities</CardTitle>
-                    <CardDescription>
-                      Prevent specific pairs from sharing the same trip
-                    </CardDescription>
+                    <CardDescription>Prevent specific pairs from sharing the same trip</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between rounded-2xl border p-3">
                       <div>
-                        <div className="text-sm font-medium">
-                          Enable incompatibilities
-                        </div>
+                        <div className="text-sm font-medium">Enable incompatibilities</div>
                         <div className="text-xs text-zinc-500">
                           Adds constraints of the form x(i,m) + x(j,m) ≤ 1
                         </div>
                       </div>
-                      <Switch
-                        checked={incompatEnabled}
-                        onCheckedChange={setIncompatEnabled}
-                      />
+                      <Switch checked={incompatEnabled} onCheckedChange={setIncompatEnabled} />
                     </div>
 
                     {incompatEnabled ? (
@@ -937,11 +1017,7 @@ export default function ShuttleOptimizerApp() {
                           </div>
 
                           <div className="flex items-end">
-                            <Button
-                              className="rounded-2xl"
-                              variant="secondary"
-                              onClick={addIncompatPair}
-                            >
+                            <Button className="rounded-2xl" variant="secondary" onClick={addIncompatPair}>
                               <Plus className="mr-2 h-4 w-4" /> Add
                             </Button>
                           </div>
@@ -959,17 +1035,11 @@ export default function ShuttleOptimizerApp() {
                                 className="flex items-center justify-between rounded-2xl border p-3"
                               >
                                 <div className="flex items-center gap-2 text-sm">
-                                  <Badge
-                                    variant="secondary"
-                                    className="rounded-full"
-                                  >
+                                  <Badge variant="secondary" className="rounded-full">
                                     {a}
                                   </Badge>
                                   <span className="text-zinc-400">×</span>
-                                  <Badge
-                                    variant="secondary"
-                                    className="rounded-full"
-                                  >
+                                  <Badge variant="secondary" className="rounded-full">
                                     {b}
                                   </Badge>
                                 </div>
@@ -1009,57 +1079,71 @@ export default function ShuttleOptimizerApp() {
                     </div>
                   ) : (
                     <div className="grid gap-4">
-                      {summary.trips.map((t) => (
-                        <div key={t.trip_index} className="rounded-3xl border p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <Badge className="rounded-full">
-                                  Trip {t.trip_index}
-                                </Badge>
-                                <Badge variant="secondary" className="rounded-full">
-                                  Vehicle {t.vehicle_index}
-                                </Badge>
-                                <Badge variant="secondary" className="rounded-full">
-                                  Departs {minutesToHHMM(t.departure_min)}
-                                </Badge>
-                              </div>
-                              <div className="mt-2 text-xs text-zinc-500">
-                                Arrival window: {minutesToHHMM(t.min_arrival_min)} to{" "}
-                                {minutesToHHMM(t.max_arrival_min)} · Guests: {t.num_guests}
-                              </div>
-                            </div>
-                          </div>
+                      {summary.trips.map((t) => {
+                        const capFromTrip =
+                          typeof t.vehicle_capacity === "number" ? t.vehicle_capacity : null;
+                        const capFromResponse =
+                          result?.vehicle_capacities && result.vehicle_capacities[t.vehicle_index] != null
+                            ? result.vehicle_capacities[t.vehicle_index]!
+                            : null;
+                        const capFromDisplay =
+                          effectiveVehicleCapsForDisplay &&
+                          effectiveVehicleCapsForDisplay[t.vehicle_index] != null
+                            ? effectiveVehicleCapsForDisplay[t.vehicle_index]!
+                            : null;
+                        const effectiveCap = capFromTrip ?? capFromResponse ?? capFromDisplay ?? null;
 
-                          <Separator className="my-3" />
-
-                          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                            {t.guests.map((g) => (
-                              <div key={g.guest_id} className="rounded-2xl bg-zinc-50 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-medium">
-                                      {g.name}
-                                    </div>
-                                    <div className="text-xs text-zinc-500">
-                                      {g.guest_id}
-                                    </div>
-                                  </div>
-                                  <Badge
-                                    variant={g.wait_min === 0 ? "secondary" : "default"}
-                                    className="rounded-full"
-                                  >
-                                    wait {g.wait_min}m
+                        return (
+                          <div key={t.trip_index} className="rounded-3xl border p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <Badge className="rounded-full">Trip {t.trip_index}</Badge>
+                                  <Badge variant="secondary" className="rounded-full">
+                                    Vehicle {t.vehicle_index}
                                   </Badge>
+                                  <Badge variant="secondary" className="rounded-full">
+                                    Departs {minutesToHHMM(t.departure_min)}
+                                  </Badge>
+                                  {effectiveCap != null ? (
+                                    <Badge variant="secondary" className="rounded-full">
+                                      Cap {effectiveCap}
+                                    </Badge>
+                                  ) : null}
                                 </div>
                                 <div className="mt-2 text-xs text-zinc-500">
-                                  arrives {minutesToHHMM(g.arrival_min)}
+                                  Arrival window: {minutesToHHMM(t.min_arrival_min)} to{" "}
+                                  {minutesToHHMM(t.max_arrival_min)} · Guests: {t.num_guests}
                                 </div>
                               </div>
-                            ))}
+                            </div>
+
+                            <Separator className="my-3" />
+
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                              {t.guests.map((g) => (
+                                <div key={g.guest_id} className="rounded-2xl bg-zinc-50 p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-sm font-medium">{g.name}</div>
+                                      <div className="text-xs text-zinc-500">{g.guest_id}</div>
+                                    </div>
+                                    <Badge
+                                      variant={g.wait_min === 0 ? "secondary" : "default"}
+                                      className="rounded-full"
+                                    >
+                                      wait {g.wait_min}m
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-500">
+                                    arrives {minutesToHHMM(g.arrival_min)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -1074,108 +1158,94 @@ export default function ShuttleOptimizerApp() {
               <Users className="h-4 w-4" />
               <span>{guests.length} guests</span>
             </div>
-            <div className="text-right">
-              Built with CP-SAT • Designed for real-world shuttle planning
-            </div>
+            <div className="text-right">Built with CP-SAT • Designed for real-world shuttle planning</div>
           </div>
         </div>
       </div>
 
-      {/* About modal */}
+      {/* About modal (FIXED: plain overflow container + body scroll lock) */}
       {aboutOpen ? (
-        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-3xl bg-white shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setAboutOpen(false)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[90vh] rounded-3xl bg-white shadow-xl overflow-hidden flex flex-col min-h-0"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="About"
+          >
+            {/* Header */}
             <div className="flex items-start justify-between gap-4 border-b p-6">
-                <div className="text-lg font-semibold tracking-tight">
-                  Why I Built This
-                </div>
-              <Button
-                variant="ghost"
-                className="rounded-2xl"
-                onClick={() => setAboutOpen(false)}
-              >
+              <div className="text-lg font-semibold tracking-tight">Why I Built This</div>
+              <Button variant="ghost" className="rounded-2xl" onClick={() => setAboutOpen(false)}>
                 Close
               </Button>
             </div>
-            <ScrollArea className="max-h-[90vh]">
-            <div className="space-y-4 p-6 text-sm leading-6 text-zinc-700">
-              <p>
-                This project started while I was planning transportation for my sister’s wedding.
-              </p>
 
-              <p>
-                At first, it sounded like a straightforward coordination task. Guests were arriving
-                at different times, there were only a few vehicles, and the drive to the venue was
-                not that long. But once I tried to plan it properly, it got complex fast. Flights
-                landed hours apart, vehicles needed to run multiple round trips, and some guests had
-                to travel together while others could not wait too long. It was also not as simple
-                as relying on a hotel shuttle, since guests were spread across different hotels, so
-                there was no single pickup point or shuttle schedule that worked for everyone. It
-                also did not help that my Indian parents expected me to personally receive all the
-                VIP guests, which sounded reasonable in theory and became a scheduling constraint in
-                practice! (If only they had told me sooner…)
-              </p>
+            {/* Scrollable body (this WILL scroll) */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+              <div className="space-y-4 p-6 text-sm leading-6 text-zinc-700">
+                <p>This project started while I was planning transportation for my sister’s wedding.</p>
 
-              <p>
-                Spreadsheets were brittle. Group chats were chaotic. Manual planning did not scale.
-              </p>
+                <p>
+                  At first, it sounded like a straightforward coordination task. Guests were arriving at
+                  different times, there were only a few vehicles, and the drive to the venue was not
+                  that long. But once I tried to plan it properly, it got complex fast. Flights landed
+                  hours apart, vehicles needed to run multiple round trips, and some guests had to travel
+                  together while others could not wait too long. It was also not as simple as relying on
+                  a hotel shuttle, since guests were spread across different hotels, so there was no
+                  single pickup point or shuttle schedule that worked for everyone. It also did not help
+                  that my Indian parents expected me to personally receive all the VIP guests, which
+                  sounded reasonable in theory and became a scheduling constraint in practice! (If only
+                  they had told me sooner). 
+                  Spreadsheets were brittle. Group chats were chaotic. Manual planning did not scale.
+                  What helped was stepping back and treating it as an optimization problem.
+                </p>
+                <p>
+                  Shuttle Optimizer is a small, explicit model of that situation. Guests are defined by
+                  arrival times. Vehicles have capacities and fixed round trip durations. Trips are
+                  decisions about who rides together and when a vehicle departs. Hard constraints must
+                  be respected. Capacity limits cannot be exceeded. Vehicles cannot be in two places at
+                  once. Optional rules like must ride together or cannot ride together are enforced
+                  exactly. Given those inputs, the solver searches for a feasible plan that minimizes total waiting time.</p>
 
-              <p>
-                What helped was stepping back and treating it as an optimization problem.
-              </p>
+                <p>
+                  Under the hood, this uses Google OR-Tools CP-SAT. The optimization occurs through a
+                  combination of constraint propagation and branch-and-bound style search. The solver
+                  explores different assignments of guests to trips and vehicles. As it builds partial
+                  solutions, it maintains bounds on the best outcome that could still be achieved. If a
+                  branch cannot outperform the best solution found so far, it is discarded. This
+                  continues until the solver can prove that no better solution exists. What matters in practice is the guarantee. 
+                  When the solver returns an optimal plan, it is not a heuristic guess. It is the best possible plan given the constraints you
+                  specified.
+                </p>
 
-              <p>
-                Shuttle Optimizer is a small, explicit model of that situation. Guests are defined
-                by arrival times. Vehicles have capacities and fixed round trip durations. Trips are
-                decisions about who rides together and when a vehicle departs. Hard constraints must
-                be respected. Capacity limits cannot be exceeded. Vehicles cannot be in two places at
-                once. Optional rules like must ride together or cannot ride together are enforced
-                exactly.
-              </p>
+                <p>
+                  There is also something quietly philosophical about this process. Many coordination
+                  problems feel chaotic because their constraints are implicit. We rely on intuition,
+                  make local decisions, and hope the global plan holds. Optimization forces you to write
+                  down what you believe matters and what cannot be violated. When the solver fails, it
+                  usually means the assumptions themselves are inconsistent or too tight.
+                </p>
 
-              <p>
-                Given those inputs, the solver searches for a feasible plan that minimizes total
-                waiting time.
-              </p>
+                <p>
+                  In that sense, the model is not just solving the problem.
+                </p>
+                <p>
+                  <i>It is revealing it.</i>
+                </p>
 
-              <p>
-                Under the hood, this uses Google OR-Tools CP-SAT. The optimization occurs through a
-                combination of constraint propagation and branch-and-bound style search. The solver
-                explores different assignments of guests to trips and vehicles. As it builds partial
-                solutions, it maintains bounds on the best outcome that could still be achieved. If a
-                branch cannot outperform the best solution found so far, it is discarded. This
-                continues until the solver can prove that no better solution exists.
-              </p>
-
-              <p>
-                What matters in practice is the guarantee. When the solver returns an optimal plan,
-                it is not a heuristic guess. It is the best possible plan given the constraints you
-                specified.
-              </p>
-
-              <p>
-                There is also something quietly philosophical about this process. Many coordination
-                problems feel chaotic because their constraints are implicit. We rely on intuition,
-                make local decisions, and hope the global plan holds. Optimization forces you to write
-                down what you believe matters and what cannot be violated. When the solver fails, it
-                usually means the assumptions themselves are inconsistent or too tight.
-              </p>
-
-              <p>
-                In that sense, the model is not just solving the problem. <i>It is revealing it</i>
-              </p>
-
-              <p>
-                <b>Aryan M</b>
-              </p>
+                <p>
+                  <b>Aryan M</b>
+                </p>
+              </div>
             </div>
 
-            </ScrollArea>
-
+            {/* Footer */}
             <div className="flex items-center justify-between border-t p-4">
-              <div className="text-xs text-zinc-500">
-                Built with CP-SAT • Open-source
-              </div>
+              <div className="text-xs text-zinc-500">Built with CP-SAT • Open-source</div>
               <Button className="rounded-2xl" onClick={() => setAboutOpen(false)}>
                 Done
               </Button>

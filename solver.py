@@ -42,11 +42,24 @@ def solve_pickups_multitrip(guests, params) -> Dict[str, Any]:
     K = params.num_cars
     W = params.max_wait_min
     RT = getattr(params, "round_trip_min", 240)
-    vehicle_caps: Optional[List[int]] = getattr(params, "vehicle_capacities", None)
-    if vehicle_caps is None:
+    # Determine final per-vehicle capacities (robust to missing/empty/mismatched input)
+    raw_caps = getattr(params, "vehicle_capacities", None)
+
+    if raw_caps is None:
         vehicle_caps = [params.capacity_per_car] * K
-    if len(vehicle_caps) != K:
-        raise ValueError("vehicle_capacities must have length num_cars")
+    else:
+        vehicle_caps = list(raw_caps)
+
+    # Normalize length to exactly K (avoid silent mis-parses)
+    if len(vehicle_caps) < K:
+        vehicle_caps = vehicle_caps + [params.capacity_per_car] * (K - len(vehicle_caps))
+    elif len(vehicle_caps) > K:
+        vehicle_caps = vehicle_caps[:K]
+
+    # Validate and clamp
+    vehicle_caps = [int(c) for c in vehicle_caps]
+    if any(c < 1 for c in vehicle_caps):
+        raise ValueError("vehicle_capacities must be >= 1")
 
     CAP_MAX = max(vehicle_caps)
 
